@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>学生成绩管理系统</title>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 30px auto; padding: 0 20px; }
+        h1 { text-align: center; color: #333; }
+        .section { background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .section h2 { margin-top: 0; color: #444; }
+        input, button { padding: 8px 12px; margin: 4px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        button { background-color: #0066cc; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0052a3; }
+        button.danger { background-color: #dc3545; }
+        button.danger:hover { background-color: #c82333; }
+        .result-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 15px;
+            border: 1px solid #ddd;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+            display: none;
+        }
+        .result-card .close-btn {
+            float: right;
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: #aaa;
+            cursor: pointer;
+        }
+        .result-card h3 { margin-top: 0; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .avg { margin-top: 10px; font-weight: bold; color: #0066cc; }
+        .error-msg { color: #dc3545; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>📚 学生成绩管理系统</h1>
+
+    <!-- 二维码区块 -->
+    <div class="section" style="text-align:center;">
+        <h2>🔗 扫码访问本系统</h2>
+        <img id="qrcode" src="" alt="二维码" style="width:180px; height:180px; margin:10px auto;" />
+        <p style="color:#666; font-size:13px;">用手机扫描二维码，即可打开学生成绩管理系统</p>
+    </div>
+
+    <!-- 添加学生 -->
+    <div class="section">
+        <h2>1. 添加学生</h2>
+        <input type="text" id="add-id" placeholder="学号">
+        <input type="text" id="add-name" placeholder="姓名">
+        <button onclick="addStudent()">添加</button>
+    </div>
+
+    <!-- 添加/修改成绩 -->
+    <div class="section">
+        <h2>2. 添加/修改成绩</h2>
+        <input type="text" id="score-id" placeholder="学号">
+        <input type="text" id="score-subject" placeholder="科目">
+        <input type="number" id="score-value" placeholder="成绩(0-100)" step="0.1" min="0" max="100">
+        <button onclick="addScore()">提交</button>
+    </div>
+
+    <!-- 查询学生 & 删除 -->
+    <div class="section">
+        <h2>3. 查询 / 删除学生</h2>
+        <input type="text" id="query-id" placeholder="学号">
+        <button onclick="queryStudent()">查询</button>
+        <button class="danger" onclick="deleteStudent()">删除</button>
+        <button onclick="showAverage()">平均分</button>
+    </div>
+
+    <!-- 列出所有学生 -->
+    <div class="section">
+        <h2>4. 所有学生列表</h2>
+        <button onclick="listStudents()">刷新列表</button>
+        <div id="student-table" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- 动态结果展示卡片 -->
+    <div id="result-card" class="result-card">
+        <button class="close-btn" onclick="document.getElementById('result-card').style.display='none'">✖</button>
+        <div id="result-content"></div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        async function apiCall(url, method = 'GET', body = null) {
+            const options = {
+                method: method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (body) options.body = JSON.stringify(body);
+            const res = await fetch(API_BASE + url, options);
+            const data = await res.json();
+            return data;
+        }
+
+        function showCard(htmlContent) {
+            const card = document.getElementById('result-card');
+            document.getElementById('result-content').innerHTML = htmlContent;
+            card.style.display = 'block';
+        }
+
+        function scoresToTable(scores) {
+            if (!scores || Object.keys(scores).length === 0) return '<p>暂无成绩记录</p>';
+            let html = '<table><tr><th>科目</th><th>成绩</th></tr>';
+            for (const [subject, score] of Object.entries(scores)) {
+                html += `<tr><td>${subject}</td><td>${score}</td></tr>`;
+            }
+            html += '</table>';
+            return html;
+        }
+
+        function calcAverage(scores) {
+            if (!scores || Object.keys(scores).length === 0) return null;
+            const sum = Object.values(scores).reduce((a,b) => a + b, 0);
+            return (sum / Object.values(scores).length).toFixed(1);
+        }
+
+        async function addStudent() {
+            const id = document.getElementById('add-id').value.trim();
+            const name = document.getElementById('add-name').value.trim();
+            if (!id || !name) return alert('请输入学号和姓名');
+            const data = await apiCall('/student', 'POST', { id, name });
+            if (data.status === 'ok') {
+                showCard('<h3>✅ 添加成功</h3><p>学生 ' + name + '（学号：' + id + '）已添加。</p>');
+            } else {
+                showCard('<h3>❌ 添加失败</h3><p class="error-msg">' + data.message + '</p>');
+            }
+            listStudents();
+        }
+
+        async function addScore() {
+            const id = document.getElementById('score-id').value.trim();
+            const subject = document.getElementById('score-subject').value.trim();
+            const score = parseFloat(document.getElementById('score-value').value);
+            if (!id || !subject || isNaN(score)) return alert('请完整填写');
+            const data = await apiCall(`/student/${id}/score`, 'POST', { subject, score });
+            if (data.status === 'ok') {
+                showCard('<h3>✅ 成绩已更新</h3><p>学号 ' + id + ' 的 ' + subject + ' 成绩更新为 ' + score + '</p>');
+            } else {
+                showCard('<h3>❌ 操作失败</h3><p class="error-msg">' + data.message + '</p>');
+            }
+        }
+
+        async function queryStudent() {
+            const id = document.getElementById('query-id').value.trim();
+            if (!id) return alert('请输入学号');
+            const data = await apiCall(`/student/${id}`);
+            if (data.status === 'ok' && data.data) {
+                const stu = data.data;
+                const avg = calcAverage(stu.scores);
+                let html = `<h3>📋 学生详细信息</h3>`;
+                html += `<p><strong>学号：</strong>${stu.id}</p>`;
+                html += `<p><strong>姓名：</strong>${stu.name}</p>`;
+                html += `<p><strong>成绩：</strong></p>`;
+                html += scoresToTable(stu.scores);
+                if (avg !== null) {
+                    html += `<p class="avg">平均分：${avg}</p>`;
+                }
+                showCard(html);
+            } else {
+                showCard('<h3>❌ 查询失败</h3><p class="error-msg">' + data.message + '</p>');
+            }
+        }
+
+        async function deleteStudent() {
+            const id = document.getElementById('query-id').value.trim();
+            if (!id) return alert('请输入学号');
+            if (!confirm(`确定删除学号 ${id} 的学生吗？`)) return;
+            const data = await apiCall(`/student/${id}`, 'DELETE');
+            if (data.status === 'ok') {
+                showCard('<h3>🗑️ 已删除</h3><p>学号 ' + id + ' 的学生已移除。</p>');
+            } else {
+                showCard('<h3>❌ 删除失败</h3><p class="error-msg">' + data.message + '</p>');
+            }
+            listStudents();
+        }
+
+        async function showAverage() {
+            const id = document.getElementById('query-id').value.trim();
+            if (!id) return alert('请输入学号');
+            const data = await apiCall(`/student/${id}/average`);
+            if (data.status === 'ok') {
+                showCard('<h3>📊 平均分</h3><p>学号 ' + id + ' 的平均分为：<strong>' + data.data + '</strong></p>');
+            } else {
+                showCard('<h3>❌ 无法计算</h3><p class="error-msg">' + data.message + '</p>');
+            }
+        }
+
+        async function listStudents() {
+            const data = await apiCall('/students');
+            const div = document.getElementById('student-table');
+            if (data.status !== 'ok' || !data.data) {
+                div.innerHTML = '暂无学生数据';
+                return;
+            }
+            const students = data.data;
+            let html = '<table><tr><th>学号</th><th>姓名</th></tr>';
+            students.forEach(s => {
+                html += `<tr><td>${s.id}</td><td>${s.name}</td></tr>`;
+            });
+            html += '</table>';
+            div.innerHTML = html;
+        }
+
+        window.onload = listStudents;
+    </script>
+</body>
+</html>
